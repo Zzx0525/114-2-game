@@ -5,7 +5,7 @@ let gestureText = "";
 let modelLoaded = false;
 
 // 新增狀態機
-let appState = "COVER";        // 應用程式狀態: COVER, TUTORIAL, WARNING, LOADING, CALIBRATING, PLAYING, RESULT, ADVENTURE_WARNING, ADVENTURE
+let appState = "COVER";        // 應用程式狀態: COVER, TUTORIAL, WARNING, LOADING, CALIBRATING, PLAYING, RESULT, ADVENTURE
 
 // 啟動（校正）階段的相關變數
 let calibrateStartTime = 0;    // 記錄開始偵測到手的時間
@@ -20,9 +20,10 @@ const historyLength = 10;      // 收集最近 10 幀來取眾數，解決閃爍
 
 let actionButton;              // 流程控制按鈕
 let adventureButton;           // 出發冒險按鈕
-let pauseButton;               // 暫停遊戲按鈕
-let testButton;                // 測試用跳轉按鈕
-let testTargetState = "";      // 測試用目標狀態
+let homeButton;                // 回首頁按鈕
+let pauseButton;               // 暫停按鈕
+let testButton;                // 測試通道按鈕
+let skipToAdventure = false;   // 標記是否直接跳轉第三階段
 let tutorialImgs = [];         // 宣告陣列用來存放 0-9 的教材圖片
 let enlargedImageIndex = -1;   // 用來記錄目前被放大的圖片索引 (-1 表示無)
 let viewedCards = new Set();   // 記錄已閱讀的卡片索引
@@ -55,12 +56,16 @@ let advState = {
   hp: 3,                 // 生命值
   score: 0,              // 消除障礙數
   obstacles: [],         // 障礙物陣列
-  clouds: [],            // 背景雲朵陣列
+  projectiles: [],       // 光球陣列
+  particles: [],         // 爆炸粒子陣列
   gameOver: false,       // 遊戲是否結束
+  gameWon: false,        // 遊戲是否勝利
   isPaused: false,       // 遊戲是否暫停
   groundY: 0,            // 地板高度
   hurtTimer: 0,          // 受傷閃爍特效計時器
-  animTime: 0            // 處理角色動畫的時間
+  animTime: 0,           // 控制動畫的時間，暫停時停止增加
+  clouds: [],            // 雲朵陣列
+  birds: []              // 飛鳥陣列
 };
 
 function preload() {
@@ -113,46 +118,56 @@ function setup() {
   adventureButton.style('z-index', '1000');
   adventureButton.mousePressed(goToAdventure);
   adventureButton.hide(); // 預設隱藏
-  
+
+  // === 建立回首頁按鈕 ===
+  homeButton = createButton('回首頁');
+  homeButton.size(200, 50);
+  homeButton.style('font-size', '24px');
+  homeButton.style('cursor', 'pointer');
+  homeButton.style('border-radius', '12px');
+  homeButton.style('background-color', '#87CEFA'); // 柔和的天藍色
+  homeButton.style('color', '#2F4F6F');
+  homeButton.style('border', 'none');
+  homeButton.style('font-family', '"Noto Sans TC", sans-serif');
+  homeButton.style('font-weight', '900');
+  homeButton.style('box-shadow', '0 4px 6px rgba(0,0,0,0.3)');
+  homeButton.style('z-index', '1000');
+  homeButton.mousePressed(goHome);
+  homeButton.hide(); // 預設隱藏
+
   // === 建立暫停按鈕 ===
-  pauseButton = createButton('暫停遊戲');
-  pauseButton.size(150, 40);
-  pauseButton.style('font-size', '20px');
+  pauseButton = createButton('暫停');
+  pauseButton.size(100, 50);
+  pauseButton.style('font-size', '24px');
   pauseButton.style('cursor', 'pointer');
   pauseButton.style('border-radius', '12px');
-  pauseButton.style('background-color', '#FF4500'); // 橘紅色
-  pauseButton.style('color', '#FFFFFF'); 
+  pauseButton.style('background-color', '#FF6347'); // 橘紅色
+  pauseButton.style('color', '#FFFFFF');
   pauseButton.style('border', 'none');
   pauseButton.style('font-family', '"Noto Sans TC", sans-serif');
   pauseButton.style('font-weight', '900');
   pauseButton.style('box-shadow', '0 4px 6px rgba(0,0,0,0.3)');
+  pauseButton.style('z-index', '1000');
   pauseButton.mousePressed(togglePause);
   pauseButton.hide(); // 預設隱藏
 
-  // === 建立測試通道按鈕 (後續可刪除) ===
-  testButton = createButton('測試：跳至第三部分');
-  testButton.position(20, height - 60);
-  testButton.style('font-size', '16px');
+  // === 建立測試通道按鈕 ===
+  testButton = createButton('三');
+  testButton.size(50, 50);
+  testButton.position(20, height - 70);
+  testButton.style('font-size', '24px');
   testButton.style('cursor', 'pointer');
   testButton.style('border-radius', '8px');
-  testButton.style('background-color', '#FF0000'); // 紅色以利辨識
-  testButton.style('color', '#FFFFFF'); 
+  testButton.style('background-color', '#FFD700');
   testButton.style('border', 'none');
-  testButton.style('padding', '10px 15px');
-  testButton.style('font-family', '"Noto Sans TC", sans-serif');
   testButton.style('font-weight', '900');
-  testButton.style('z-index', '9999');
+  testButton.style('box-shadow', '0 4px 6px rgba(0,0,0,0.3)');
+  testButton.style('z-index', '1000');
   testButton.mousePressed(() => {
+    skipToAdventure = true;
+    appState = "LOADING";
     testButton.hide();
-    actionButton.hide();
-    adventureButton.hide();
-    if (!modelLoaded) {
-      testTargetState = "ADVENTURE_WARNING";
-      appState = "LOADING";
-      startCamera();
-    } else {
-      goToAdventure(); // 若模型已載入，直接呼叫原本準備好的跳轉函式
-    }
+    startCamera();
   });
 }
 
@@ -174,43 +189,43 @@ function nextState() {
     appState = "CALIBRATING";    // 直接回到校正畫面重新開始
     actionButton.hide();
     adventureButton.position(width - 220, 20); // 將出發冒險按鈕移至畫面右上角，讓玩家隨時可前往下一關
-  } else if (appState === "ADVENTURE_WARNING") {
-    appState = "ADVENTURE";
-    actionButton.hide();
-    pauseButton.show();
-    initAdventure();
   } else if (appState === "ADVENTURE") {
     // 處理遊戲結束後的重新挑戰
     initAdventure();
     actionButton.hide();
+    homeButton.hide();
   }
+}
+
+// === 回到首頁處理 ===
+function goHome() {
+  appState = "COVER";
+  
+  // 重置 actionButton 為預設狀態
+  actionButton.html("下一步");
+  actionButton.size(150, 50);
+  actionButton.position(width / 2 - 75, height - 100);
+  
+  actionButton.hide();
+  adventureButton.hide();
+  homeButton.hide();
+  // 重置教學卡片閱讀進度
+  enlargedImageIndex = -1;
+  viewedCards.clear();
+  
+  // 重置第二階段遊戲狀態
+  gameScore = 0;
+  isEndlessMode = false;
+  isHolding = false;
+  showCorrectMessage = false;
 }
 
 // 點擊出發冒險按鈕的處理
 function goToAdventure() {
-  appState = "ADVENTURE_WARNING"; // 先進入第三部分說明頁
+  appState = "ADVENTURE";
+  actionButton.hide();
   adventureButton.hide();
-  
-  // 設定開始冒險按鈕
-  actionButton.html("開始冒險");
-  actionButton.size(250, 50);
-  actionButton.position(width / 2 - 125, height - 100);
-  actionButton.show();
-}
-
-// 點擊暫停按鈕的處理
-function togglePause() {
-  if (appState === "ADVENTURE" && !advState.gameOver) {
-    advState.isPaused = !advState.isPaused;
-    if (advState.isPaused) {
-      pauseButton.html('繼續遊戲');
-      pauseButton.style('background-color', '#32CD32');
-      isHolding = false; // 暫停時重置手勢維持狀態，防止作弊
-    } else {
-      pauseButton.html('暫停遊戲');
-      pauseButton.style('background-color', '#FF4500');
-    }
-  }
+  initAdventure();
 }
 
 // === 初始化冒險模式 ===
@@ -218,35 +233,67 @@ function initAdventure() {
   advState.hp = 3;
   advState.score = 0;
   advState.obstacles = [];
-  advState.clouds = [];
-  // 產生 5 朵初始雲朵
-  for (let i = 0; i < 5; i++) {
-    advState.clouds.push({
-      x: random(width),
-      y: random(50, height * 0.5),
-      size: random(40, 80),
-      speed: random(0.2, 0.8)
-    });
-  }
+  advState.projectiles = []; // 重置光球
+  advState.particles = [];   // 重置粒子
   advState.gameOver = false;
+  advState.gameWon = false;
   advState.isPaused = false;
   advState.groundY = height * 0.85; // 地板高度設定在畫面下方
   advState.hurtTimer = 0;
-  advState.animTime = 0;
+  advState.animTime = 0; // 重置動畫時間
+
+  // 初始化背景雲朵
+  advState.clouds = [];
+  for (let i = 0; i < 5; i++) {
+    advState.clouds.push({
+      x: random(width),
+      y: random(50, advState.groundY - 150),
+      w: random(80, 180),
+      h: random(30, 60),
+      speed: random(0.2, 0.8)
+    });
+  }
+  
+  // 初始化背景飛鳥
+  advState.birds = [];
+  for (let i = 0; i < 4; i++) {
+    advState.birds.push({
+      x: random(width),
+      y: random(50, advState.groundY - 200),
+      speedX: random(1.5, 3.5),
+      speedY: random(-0.3, 0.3),
+      flapSpeed: random(0.008, 0.015),
+      flapOffset: random(TWO_PI),
+      size: random(10, 18)
+    });
+  }
+
   isHolding = false;
   holdStartTime = 0;
-  
-  if (typeof pauseButton !== 'undefined') {
-    pauseButton.html('暫停遊戲');
-    pauseButton.style('background-color', '#FF4500');
-    pauseButton.position(30, 120);
-    pauseButton.show(); // 確保重新開始遊戲時，暫停按鈕會重新顯示
+
+  if (pauseButton) {
+    pauseButton.html("暫停");
+    pauseButton.position(30, 110); // 移至消除障礙文字下方
+    pauseButton.show();
+  }
+}
+
+// === 切換暫停狀態 ===
+function togglePause() {
+  advState.isPaused = !advState.isPaused;
+  if (advState.isPaused) {
+    pauseButton.html("繼續");
+  } else {
+    pauseButton.html("暫停");
   }
 }
 
 // === 檢查教學進度來控制按鈕 ===
 function checkTutorialProgress() {
   if (appState === "TUTORIAL" && viewedCards.size >= 10 && enlargedImageIndex === -1) {
+    actionButton.html("下一步");
+    actionButton.size(150, 50);
+    actionButton.position(width / 2 - 75, height - 100);
     actionButton.show();
   } else {
     actionButton.hide();
@@ -254,6 +301,18 @@ function checkTutorialProgress() {
 }
 
 function startCamera() {
+  // 如果模型已經載入過，直接進行狀態切換，避免重複載入攝影機
+  if (modelLoaded) {
+    if (skipToAdventure) {
+      appState = "ADVENTURE";
+      skipToAdventure = false;
+      initAdventure();
+    } else {
+      appState = "CALIBRATING";
+    }
+    return;
+  }
+
   // 取得攝影機影像，並加入「限制解析度與幀率」的設定
   let constraints = {
     audio: false,
@@ -270,16 +329,12 @@ function startCamera() {
   handpose = ml5.handpose(capture, () => {
     console.log("Handpose 模型載入成功！");
     modelLoaded = true;
-    
-    // 檢查是否有測試跳轉目標
-    if (testTargetState !== "") {
-      appState = testTargetState;
-      if (appState === "ADVENTURE_WARNING") {
-        goToAdventure(); // 初始化開始冒險按鈕
-      }
-      testTargetState = "";
+    if (skipToAdventure) {
+      appState = "ADVENTURE";
+      skipToAdventure = false;
+      initAdventure();
     } else {
-      appState = "CALIBRATING"; // 正常流程：模型載入完畢，進入校正階段
+      appState = "CALIBRATING"; // 模型載入完畢，進入校正階段
     }
   });
   
@@ -313,8 +368,6 @@ function draw() {
     drawHintModal();
   } else if (appState === "RESULT") {
     drawResult();
-  } else if (appState === "ADVENTURE_WARNING") {
-    drawAdventureWarning();
   } else if (appState === "ADVENTURE") {
     drawAdventure();
   }
@@ -656,87 +709,6 @@ function drawWarning() {
       if (!part) continue;
       let isKeyword = (part === "維持 1 秒鐘" || part === "15 題");
       fill(isKeyword ? '#E67E22' : '#5D7A99'); // 關鍵字使用暖橘色，其餘用輔助藍
-      drawingContext.font = isKeyword ? `900 ${subHintSize}px "Noto Sans TC", sans-serif` : `500 ${subHintSize}px "Noto Sans TC", sans-serif`;
-      text(part, currentX, currentY);
-      currentX += textWidth(part);
-    }
-    currentY += leading;
-  }
-  pop();
-}
-
-// === 繪製第三部分冒險前說明頁 ===
-function drawAdventureWarning() {
-  push();
-  
-  let hintSize = min(40, width * 0.045, height * 0.06);     
-  let subHintSize = min(24, width * 0.026, height * 0.04);  
-  let leading = min(54, height * 0.07);                     
-
-  let warningText = "跑酷小遊戲操作說明：\n\n" +
-                    "1. 畫面右方會不斷出現帶有數字的障礙物。\n" +
-                    "2. 請對著右上角的鏡頭，比出障礙物上對應的手語數字。\n" +
-                    "3. 成功辨識並維持 0.5 秒即可發射魔法消除障礙物！\n" +
-                    "4. 保護小人不要撞到障礙物，你共有 3 顆愛心生命。\n\n" +
-                    "準備好出發冒險了嗎？請點擊「開始冒險」";
-
-  let lines = warningText.split('\n').length;
-  let cardW = min(900, width * 0.85); 
-  let cardH = lines * leading + 80;
-  
-  let totalHeight = hintSize + 30 + cardH;
-  let buttonTop = height - 100; 
-  let hintY = max(20, (buttonTop - totalHeight) / 2); 
-  let cardTop = hintY + hintSize + 30;
-
-  textAlign(CENTER, TOP); 
-  fill('#2F4F6F'); 
-  noStroke();
-  textSize(hintSize);
-  textStyle(BOLD); 
-  textFont('Noto Sans TC');
-  drawingContext.font = `900 ${hintSize}px "Noto Sans TC", sans-serif`;
-  text("【第三部分：出發冒險！】", width / 2, hintY);
-
-  push();
-  drawingContext.shadowOffsetX = 0;
-  drawingContext.shadowOffsetY = 8;
-  drawingContext.shadowBlur = 20;
-  drawingContext.shadowColor = 'rgba(0, 0, 0, 0.15)';
-  fill(255);
-  noStroke();
-  rectMode(CENTER);
-  rect(width / 2, cardTop + cardH / 2, cardW, cardH, 16);
-  pop();
-
-  textSize(subHintSize);
-  textAlign(LEFT, TOP); 
-  
-  let linesArray = warningText.split('\n');
-  let currentY = cardTop + 40;
-  
-  for (let i = 0; i < linesArray.length; i++) {
-    let lineStr = linesArray[i];
-    if (lineStr === "") {
-      currentY += leading;
-      continue;
-    }
-
-    let parts = lineStr.split(/(維持 0.5 秒|3 顆愛心)/g);
-    
-    let totalLineWidth = 0;
-    for (let part of parts) {
-      if (!part) continue;
-      let isKeyword = (part === "維持 0.5 秒" || part === "3 顆愛心");
-      drawingContext.font = isKeyword ? `900 ${subHintSize}px "Noto Sans TC", sans-serif` : `500 ${subHintSize}px "Noto Sans TC", sans-serif`;
-      totalLineWidth += textWidth(part);
-    }
-
-    let currentX = width / 2 - totalLineWidth / 2;
-    for (let part of parts) {
-      if (!part) continue;
-      let isKeyword = (part === "維持 0.5 秒" || part === "3 顆愛心");
-      fill(isKeyword ? '#E67E22' : '#5D7A99'); 
       drawingContext.font = isKeyword ? `900 ${subHintSize}px "Noto Sans TC", sans-serif` : `500 ${subHintSize}px "Noto Sans TC", sans-serif`;
       text(part, currentX, currentY);
       currentX += textWidth(part);
@@ -1155,51 +1127,112 @@ function drawResult() {
 
 // === 繪製第三部分冒險畫面 ===
 function drawAdventure() {
-  background('#F5F7FA');
-  
-  // === 繪製與更新背景雲朵 ===
+  // === 繪製天空漸層 (淺天空藍接到地板白色) ===
+  push();
+  let skyGradient = drawingContext.createLinearGradient(0, 0, 0, advState.groundY);
+  skyGradient.addColorStop(0, '#A0C4FF'); // 頂部淺藍色
+  skyGradient.addColorStop(1, '#FFFFFF'); // 底部白色
+  drawingContext.fillStyle = skyGradient;
   noStroke();
-  fill(255, 255, 255, 180); // 半透明白色
-  for (let i = 0; i < advState.clouds.length; i++) {
-    let cloud = advState.clouds[i];
-    if (!advState.isPaused) {
-      cloud.x -= cloud.speed;
-      if (cloud.x < -150) { // 飄出畫面左側後重置到右側
-        cloud.x = width + 100;
-        cloud.y = random(50, height * 0.5);
-        cloud.size = random(40, 80);
-        cloud.speed = random(0.2, 0.8);
-      }
-    }
-    circle(cloud.x, cloud.y, cloud.size);
-    circle(cloud.x + cloud.size * 0.5, cloud.y + cloud.size * 0.2, cloud.size * 0.8);
-    circle(cloud.x - cloud.size * 0.5, cloud.y + cloud.size * 0.2, cloud.size * 0.8);
-  }
+  rectMode(CORNER);
+  rect(0, 0, width, height);
+  pop();
 
+  // === 繪製與更新雲朵 ===
+  push();
+  noStroke();
+  fill(255, 255, 255, 220); // 半透明白色的雲朵
+  for (let c of advState.clouds) {
+    if (!advState.isPaused) c.x -= c.speed;
+    if (c.x < -c.w) { // 飄出畫面左側後從右側重新生成
+      c.x = width + c.w;
+      c.y = random(50, advState.groundY - 150);
+    }
+    rectMode(CENTER);
+    rect(c.x, c.y, c.w, c.h, c.h / 2); // 雲朵主體 (圓角矩形)
+    circle(c.x - c.w * 0.15, c.y - c.h * 0.3, c.h * 0.8); // 疊加的圓形營造蓬鬆感
+    circle(c.x + c.w * 0.15, c.y - c.h * 0.4, c.h * 0.9);
+  }
+  pop();
+
+  // === 繪製與更新飛鳥 ===
+  push();
+  noFill();
+  stroke('#8CA5B7'); // 淡藍灰色
+  strokeWeight(3);
+  strokeJoin(ROUND);
+  for (let b of advState.birds) {
+    if (!advState.isPaused) {
+      b.x -= b.speedX;
+      b.y += b.speedY;
+      if (b.y < 30 || b.y > advState.groundY - 150) b.speedY *= -1; // 上下微微浮動
+    }
+    if (b.x < -b.size * 2) {
+      b.x = width + b.size * 2;
+      b.y = random(50, advState.groundY - 200);
+    }
+    // 利用 sin 函數搭配 animTime 與各鳥獨立的偏移值，製造順暢的展翅效果
+    let flap = sin(advState.animTime * b.flapSpeed + b.flapOffset) * b.size * 0.6;
+    push();
+    translate(b.x, b.y);
+    beginShape();
+    vertex(-b.size, -flap);
+    vertex(0, 0);
+    vertex(b.size, -flap);
+    endShape();
+    pop();
+  }
+  pop();
+  
   // 繪製地板
   stroke('#2F4F6F');
   strokeWeight(8);
   line(0, advState.groundY, width, advState.groundY);
 
-  if (advState.gameOver) {
+  if (advState.gameOver || advState.gameWon) {
     push();
     fill(0, 0, 0, 150);
     rectMode(CORNER);
     rect(0, 0, width, height);
 
+    // 如果是勝利，畫彩帶特效
+    if (advState.gameWon) {
+      noStroke();
+      for (let i = 0; i < confettis.length; i++) {
+        let c = confettis[i];
+        push();
+        translate(c.x, c.y);
+        rotate(c.angle);
+        fill(c.color);
+        rectMode(CENTER);
+        rect(0, 0, c.w, c.h);
+        pop();
+        c.y += c.speedY;
+        c.x += c.speedX;
+        c.angle += c.spin;
+        if (c.y > height + 20) {
+          c.y = random(-100, -20);
+          c.x = random(width);
+        }
+      }
+    }
+
     fill('#FFFFFF');
     textAlign(CENTER, CENTER);
     textSize(64);
     drawingContext.font = `900 64px "Noto Sans TC", sans-serif`;
-    text("遊戲結束", width / 2, height / 2 - 60);
-
-    textSize(32);
-    drawingContext.font = `500 32px "Noto Sans TC", sans-serif`;
-    text("很抱歉，你沒有成功保護他，請繼續加油~", width / 2, height / 2 + 20);
     
-    textSize(24);
-    drawingContext.font = `500 24px "Noto Sans TC", sans-serif`;
-    text(`( 本次共消除障礙：${advState.score} 個 )`, width / 2, height / 2 + 70);
+    if (advState.gameWon) {
+      text("🎉 完全通關！", width / 2, height / 2 - 60);
+      textSize(32);
+      drawingContext.font = `500 32px "Noto Sans TC", sans-serif`;
+      text(`太棒了！您成功保護小人並消滅了 20 個障礙物！`, width / 2, height / 2 + 20);
+    } else {
+      text("遊戲結束", width / 2, height / 2 - 60);
+      textSize(32);
+      drawingContext.font = `500 32px "Noto Sans TC", sans-serif`;
+      text(`好可惜未成功保護他，請繼續加油！`, width / 2, height / 2 + 20);
+    }
     pop();
     return; // 遊戲結束停止更新邏輯
   }
@@ -1207,16 +1240,12 @@ function drawAdventure() {
   // 檢查手勢辨識
   if (!advState.isPaused) {
     checkGesture();
-  }
-
-  // 更新動畫時間 (暫停時不會增加)
-  if (!advState.isPaused && !advState.gameOver) {
-    advState.animTime += deltaTime;
+    advState.animTime += deltaTime; // 只有在沒暫停時，才更新動畫時間
   }
 
   let charX = width * 0.2; // 主角固定在畫面左側 20% 處
   let charY = advState.groundY - 40;
-  let bounce = sin(advState.animTime / 80) * 5; // 改用 animTime
+  let bounce = sin(advState.animTime / 80) * 5; // 跑步的上下跳動感
 
   // === 生成障礙物 ===
   let canSpawn = false;
@@ -1224,20 +1253,23 @@ function drawAdventure() {
     canSpawn = true;
   } else {
     let lastObs = advState.obstacles[advState.obstacles.length - 1];
-    if (width - lastObs.x > 250) { // 放寬安全距離
+    if (width - lastObs.x > 350) { // 與前一個障礙物保持至少 350px 的安全距離
       canSpawn = true;
     }
   }
 
-  // 降低障礙物初始速度與成長幅度
-  let currentSpeed = 5 + (advState.score * 0.1);
-  if (!advState.isPaused && canSpawn && random() < 0.03) { 
+  // 障礙物速度隨著分數稍微加快
+  let currentSpeed = 4 + (advState.score * 0.15);
+  let obsColors = ['#E67E22', '#32CD32', '#9370DB', '#00BFFF', '#FF69B4', '#F4C542']; // 準備多種障礙物顏色
+  if (canSpawn && random() < 0.02 && !advState.isPaused) { 
     advState.obstacles.push({
-      x: width + 50,
-      y: advState.groundY - 30,
+      x: width + 300, // 將生成位置往更右側外推，讓預警氣泡能提早出現，增加反應時間
+      y: advState.groundY - random(30, 120), // 隨機高度，最高到 -120
       size: 60,
       num: random(gestures),
-      speed: currentSpeed
+      speed: currentSpeed,
+      color: random(obsColors), // 隨機挑選顏色
+      isHit: false // 尚未被光球鎖定
     });
   }
 
@@ -1245,12 +1277,12 @@ function drawAdventure() {
   let hitIndex = -1;
   for (let i = 0; i < advState.obstacles.length; i++) {
     let obs = advState.obstacles[i];
-    if (!advState.isPaused) {
-      obs.x -= obs.speed; // 若未暫停，才往左移動
+    if (!obs.isHit && !advState.isPaused) {
+      obs.x -= obs.speed; // 若未被擊中鎖定，才繼續往左移動
     }
 
     push();
-    fill('#E67E22'); // 障礙物橘色
+    fill(obs.color); // 使用障礙物專屬顏色
     stroke('#2F4F6F');
     strokeWeight(4);
     rectMode(CENTER);
@@ -1265,7 +1297,7 @@ function drawAdventure() {
     pop();
 
     // 碰撞偵測 (判斷障礙物左側是否撞到主角右側)
-    if (!advState.isPaused && obs.x - obs.size / 2 < charX + 20) { // 加上暫停判斷，避免連續扣血
+    if (!obs.isHit && obs.x - obs.size / 2 < charX + 20) {
       hitIndex = i;
     }
   }
@@ -1274,42 +1306,72 @@ function drawAdventure() {
   if (hitIndex !== -1) {
     advState.hp--;
     advState.hurtTimer = 30; // 啟動 30 幀的紅色受傷特效
+    
+    let hitObs = advState.obstacles[hitIndex];
+    // 產生障礙物撞碎消散粒子
+    for(let j = 0; j < 20; j++) {
+      advState.particles.push({
+        x: hitObs.x, y: hitObs.y,
+        vx: random(-5, 8), vy: random(-6, 2),
+        life: 30, maxLife: 30,
+        color: random([hitObs.color, hitObs.color, '#FFFFFF']), // 碎片使用障礙物顏色與白色
+        size: random(5, 12),
+        angle: random(TWO_PI),
+        spin: random(-0.2, 0.2),
+        shape: 'rect'
+      });
+    }
+    
     advState.obstacles.splice(hitIndex, 1);
     if (advState.hp <= 0) {
       advState.gameOver = true;
-      pauseButton.hide(); // 遊戲結束時隱藏暫停按鈕
+      if (pauseButton) pauseButton.hide();
       actionButton.html("重新挑戰");
-      actionButton.position(width / 2 - 100, height / 2 + 130); // 將按鈕向下移動，避免擋到文字
+      actionButton.position(width / 2 - 220, height / 2 + 80);
       actionButton.size(200, 50);
       actionButton.show();
+      homeButton.position(width / 2 + 20, height / 2 + 80);
+      homeButton.show();
     }
   }
 
   // === 處理辨識消除障礙物 ===
   if (!advState.isPaused && advState.obstacles.length > 0) {
-    let firstObs = advState.obstacles[0];
-    if (gestureText === firstObs.num) {
+    // 找出最前面且尚未被光球鎖定的障礙物
+    let activeObs = advState.obstacles.find(o => !o.isHit);
+    if (activeObs && gestureText === activeObs.num) {
       if (!isHolding) {
         isHolding = true;
-        holdStartTime = millis();
+        holdStartTime = advState.animTime;
       } else {
-        // 需要維持 0.5 秒鐘即可消除 (比練習模式節奏更快)
-        let holdProgress = min((millis() - holdStartTime) / 500, 1);
+        // 需要維持 0.4 秒鐘即可消除該數字 (加快節奏)
+        let holdProgress = min((advState.animTime - holdStartTime) / 400, 1);
         
         // 繪製障礙物上方的進度條
         push();
         rectMode(CORNER);
         noStroke();
         fill(255, 255, 255, 100);
-        rect(firstObs.x - 30, firstObs.y - 45, 60, 8, 4);
+        let barW = activeObs.size * 0.8;
+        let barX = activeObs.x - barW / 2;
+        let barY = activeObs.y - activeObs.size / 2 - 15;
+        rect(barX, barY, barW, 8, 4);
         fill('#32CD32');
-        rect(firstObs.x - 30, firstObs.y - 45, 60 * holdProgress, 8, 4);
+        rect(barX, barY, barW * holdProgress, 8, 4);
         pop();
 
         if (holdProgress >= 1) {
-          advState.obstacles.shift(); // 成功消除最前面的障礙物
-          advState.score++;
           isHolding = false;
+          
+          activeObs.isHit = true; // 標記為已被鎖定，讓它停在原地
+          
+          // 從主角位置發射追蹤魔法光球
+          advState.projectiles.push({
+            x: charX + 20,
+            y: charY - 10,
+            target: activeObs,
+            progress: 0
+          });
         }
       }
     } else {
@@ -1323,10 +1385,22 @@ function drawAdventure() {
   push();
   translate(charX, charY + bounce);
   
-  // 受傷閃爍紅光
-  if (advState.hurtTimer > 0) {
-    fill('#FF4500');
-    if (!advState.isPaused) advState.hurtTimer--;
+  let swing = sin(advState.animTime / 80) * 15;
+  
+  // 繪製後方的手與腳 (圖層在身體下方)
+  stroke('#2F4F6F');
+  strokeWeight(6);
+  line(0, -5, swing * 1.5, 15); // 後手
+  line(0, 30, -swing, 50);      // 後腳
+
+  // 受傷閃爍紅光與無敵狀態
+  if (!advState.isPaused && advState.hurtTimer > 0) {
+    // 讓主角在無敵期間快速閃爍
+    if (floor(advState.hurtTimer / 6) % 2 === 0) fill('#FF4500'); // 紅光
+    else fill(255, 255, 255, 150); // 半透明白光
+    advState.hurtTimer--;
+  } else if (advState.hurtTimer > 0) {
+    fill('#FF4500'); // 暫停時維持紅光
   } else {
     fill('#32CD32');
   }
@@ -1335,36 +1409,123 @@ function drawAdventure() {
   rectMode(CENTER);
   rect(0, 0, 40, 60, 10);
   
-  // 眼睛
-  fill('#FFFFFF');
-  noStroke();
-  circle(-10, -15, 14);
-  circle(10, -15, 14);
-  fill('#2F4F6F');
-  circle(-10, -15, 6);
-  circle(10, -15, 6);
+  // 眼睛 (往右側偏移，呈現面向右方行進的側視感)
+  if (advState.hurtTimer > 0) {
+    // 受傷時的 > < 眼睛表情
+    stroke('#2F4F6F');
+    strokeWeight(3);
+    noFill();
+    // 左眼 >
+    line(-1, -18, 5, -15);
+    line(5, -15, -1, -12);
+    // 右眼 <
+    line(19, -18, 13, -15);
+    line(13, -15, 19, -12);
+  } else {
+    // 正常的眼睛
+    fill('#FFFFFF');
+    noStroke();
+    circle(2, -15, 14);
+    circle(16, -15, 14);
+    fill('#2F4F6F');
+    circle(5, -15, 6);
+    circle(19, -15, 6);
+  }
   
-  // 擺動的雙腳
+  // 繪製前方的手與腳 (圖層在身體上方)
   stroke('#2F4F6F');
   strokeWeight(6);
-  let legSwing = sin(advState.animTime / 80) * 15; // 改用 animTime
-  line(-10, 30, -10 + legSwing, 50);
-  line(10, 30, 10 - legSwing, 50);
+  line(0, -5, -swing * 1.5, 15); // 前手
+  line(0, 30, swing, 50);        // 前腳
+  
   pop();
 
-  // === 繪製 UI (生命值與分數) ===
-  push();
-  fill('#2F4F6F');
-  noStroke();
-  textSize(28);
-  textAlign(LEFT, TOP);
-  drawingContext.font = `900 28px "Noto Sans TC", sans-serif`;
-  text(`生命值: ${"❤️".repeat(advState.hp)}`, 30, 30);
-  text(`消除障礙: ${advState.score}`, 30, 70);
-  pop();
+  // === 繪製與更新光球 ===
+  for (let i = advState.projectiles.length - 1; i >= 0; i--) {
+    let proj = advState.projectiles[i];
+    if (!advState.isPaused) {
+      proj.progress += 0.15; // 光球極速飛行
+    }
+    
+    let currentX = lerp(proj.x, proj.target.x, proj.progress);
+    let currentY = lerp(proj.y, proj.target.y, proj.progress);
+    
+    push();
+    noStroke();
+    fill(135, 206, 250, 150); // 天藍色光暈
+    circle(currentX, currentY, 40);
+    fill(0, 191, 255, 200);   // 深藍色
+    circle(currentX, currentY, 25);
+    fill(255, 255, 255);      // 核心白光
+    circle(currentX, currentY, 12);
+    pop();
 
-  // 繪製右下角的縮小版攝影機
-  drawMiniCamera();
+    if (proj.progress >= 1) {
+      // 光球抵達，正式移除障礙物並加分
+      let obsIdx = advState.obstacles.indexOf(proj.target);
+      if (obsIdx !== -1) advState.obstacles.splice(obsIdx, 1);
+      advState.score++;
+      
+      // 產生障礙物消散粒子 (對應顏色與白色方塊碎裂效果)
+      for(let j = 0; j < 30; j++) {
+        advState.particles.push({
+          x: proj.target.x + random(-25, 25),
+          y: proj.target.y + random(-25, 25),
+          vx: random(-6, 6), vy: random(-8, 4),
+          life: 40, maxLife: 40,
+          color: random([proj.target.color, proj.target.color, '#FFFFFF']), // 碎片使用目標障礙物顏色
+          size: random(6, 16),
+          angle: random(TWO_PI),
+          spin: random(-0.2, 0.2),
+          shape: 'rect'
+        });
+      }
+      advState.projectiles.splice(i, 1);
+      
+      // 檢查是否通關
+      if (advState.score >= 20) {
+        advState.gameWon = true;
+        if (pauseButton) pauseButton.hide();
+        initConfetti(); // 初始化彩帶
+        actionButton.html("再次遊戲");
+        actionButton.position(width / 2 - 220, height / 2 + 80);
+        actionButton.size(200, 50);
+        actionButton.show();
+        homeButton.position(width / 2 + 20, height / 2 + 80);
+        homeButton.show();
+      }
+    }
+  }
+
+  // === 繪製與更新爆炸粒子 ===
+  for (let i = advState.particles.length - 1; i >= 0; i--) {
+    let p = advState.particles[i];
+    push();
+    noStroke();
+    fill(p.color);
+    drawingContext.globalAlpha = p.life / p.maxLife; // 漸漸變透明
+    
+    translate(p.x, p.y);
+    if (p.angle !== undefined) rotate(p.angle);
+    
+    let currentSize = (p.size || 15) * (p.life / p.maxLife);
+    if (p.shape === 'rect') {
+      rectMode(CENTER);
+      rect(0, 0, currentSize, currentSize, 2);
+    } else {
+      circle(0, 0, currentSize);
+    }
+    pop();
+    
+    if (!advState.isPaused) {
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.angle !== undefined) p.angle += p.spin;
+      p.life--;
+    }
+    
+    if (p.life <= 0) advState.particles.splice(i, 1);
+  }
 
   // === 繪製暫停遮罩 ===
   if (advState.isPaused) {
@@ -1380,6 +1541,67 @@ function drawAdventure() {
     text("遊戲暫停中", width / 2, height / 2);
     pop();
   }
+
+  // === 窄螢幕/提早預警系統 ===
+  if (width < 1200 && advState.obstacles.length > 0) { // 放寬螢幕寬度限制，讓更多裝置能看到預警
+    let nextObs = advState.obstacles.find(o => !o.isHit);
+    if (nextObs) {
+      push();
+      let bubbleX = width - 80;
+      let bubbleY = advState.groundY - 180;
+      
+      // 讓氣泡有輕微的上下浮動感
+      let floatY = sin(advState.animTime / 150) * 6;
+      translate(0, floatY);
+      
+      // 氣泡主體
+      fill(255, 255, 255, 230);
+      stroke('#FF6347'); // 橘紅色邊框
+      strokeWeight(4);
+      rectMode(CENTER);
+      rect(bubbleX, bubbleY, 80, 80, 16);
+      
+      // 氣泡右側的小尾巴 (指向右方外側)
+      noStroke();
+      fill(255, 255, 255, 230);
+      triangle(bubbleX + 38, bubbleY - 12, bubbleX + 38, bubbleY + 12, bubbleX + 55, bubbleY);
+      
+      stroke('#FF6347');
+      strokeWeight(4);
+      line(bubbleX + 38, bubbleY - 12, bubbleX + 55, bubbleY);
+      line(bubbleX + 38, bubbleY + 12, bubbleX + 55, bubbleY);
+      
+      // 顯示即將出現的目標數字
+      fill(nextObs.color);
+      noStroke();
+      textAlign(CENTER, CENTER);
+      textSize(42);
+      drawingContext.font = `900 42px "Noto Sans TC", sans-serif`;
+      text(nextObs.num, bubbleX, bubbleY);
+      
+      // 標題文字
+      fill('#FF6347');
+      textSize(18);
+      drawingContext.font = `900 18px "Noto Sans TC", sans-serif`;
+      text("即將出現", bubbleX, bubbleY - 55);
+      
+      pop();
+    }
+  }
+
+  // === 繪製 UI (生命值與分數) ===
+  push();
+  fill('#2F4F6F');
+  noStroke();
+  textSize(28);
+  textAlign(LEFT, TOP);
+  drawingContext.font = `900 28px "Noto Sans TC", sans-serif`;
+  text(`生命值: ${"❤️".repeat(advState.hp)}`, 30, 30);
+  text(`消除障礙: ${advState.score}`, 30, 70);
+  pop();
+
+  // 繪製右下角的縮小版攝影機
+  drawMiniCamera();
 }
 
 // === 繪製右上角縮小版攝影機 ===
@@ -1742,6 +1964,7 @@ function mousePressed(event) {
   // 封面點擊進入教學
   if (appState === "COVER") {
     appState = "TUTORIAL";
+    if (testButton) testButton.hide();
     checkTutorialProgress();
     return;
   }
@@ -1825,6 +2048,7 @@ function keyPressed() {
   // 封面按下空白鍵進入教學
   if (appState === "COVER" && key === ' ') {
     appState = "TUTORIAL";
+    if (testButton) testButton.hide();
     checkTutorialProgress();
     return;
   }
@@ -1861,5 +2085,21 @@ function windowResized() {
   // 同步更新出發冒險按鈕在無盡模式時的位置
   if (adventureButton && isEndlessMode && (appState === "CALIBRATING" || appState === "PLAYING")) {
     adventureButton.position(width - 220, 20);
+  }
+  
+  // 同步更新第三階段結束按鈕位置
+  if (homeButton && (advState.gameOver || advState.gameWon) && appState === "ADVENTURE") {
+    actionButton.position(width / 2 - 220, height / 2 + 80);
+    homeButton.position(width / 2 + 20, height / 2 + 80);
+  }
+
+  // 同步更新暫停按鈕位置
+  if (pauseButton && appState === "ADVENTURE" && !advState.gameOver && !advState.gameWon) {
+    pauseButton.position(30, 110);
+  }
+
+  // 同步更新測試按鈕位置
+  if (testButton && appState === "COVER") {
+    testButton.position(20, height - 70);
   }
 }
